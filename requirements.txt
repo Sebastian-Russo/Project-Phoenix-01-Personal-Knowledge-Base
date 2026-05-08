@@ -1,0 +1,33 @@
+# API
+flask==3.0.3
+flask-cors==4.0.0
+
+# Anthropic
+anthropic==0.40.0
+
+# Embeddings and reranking
+sentence-transformers==3.0.1
+
+# Vector store
+# stores your document embeddings locally in the chroma_db/ folder, no external database needed
+chromadb==0.5.15
+
+# Document ingestion
+pypdf==4.3.1
+beautifulsoup4==4.12.3
+requests==2.32.3
+markdownify==0.13.1
+
+# Google APIs
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.149.0
+
+# Utilities
+python-dotenv==1.0.1
+pyyaml==6.0.2
+tiktoken==0.8.0 # OpenAI's tokenizer which we use to count tokens accurately when chunking
+
+# Background tasks (realtime sync)
+# handles the background polling thread for realtime Google sync — it's a lightweight job scheduler that runs inside the Flask process
+apscheduler==3.10.4
