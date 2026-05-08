@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phoenix KB</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Nav ── */
+    nav {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    nav h1 { font-size: 1.1rem; color: #58a6ff; font-weight: 700; }
+
+    .nav-badge {
+      font-size: 0.72rem;
+      background: #1f3a6b;
+      color: #58a6ff;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .nav-stats {
+      margin-left: auto;
+      display: flex;
+      gap: 20px;
+      font-size: 0.8rem;
+      color: #8b949e;
+    }
+
+    .nav-stat span { color: #58a6ff; font-weight: 600; }
+
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      margin-left: 20px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: 1px solid #30363d;
+      color: #8b949e;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      background: #1f3a6b;
+      border-color: #58a6ff;
+      color: #58a6ff;
+    }
+
+    /* ── Layout ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    .sidebar {
+      width: 300px;
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* ── Views ── */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ── Chat view ── */
+    #view-chat {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    #view-chat.active {
+      display: flex;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message { display: flex; flex-direction: column; gap: 6px; }
+
+    .message-user { align-items: flex-end; }
+    .message-assistant { align-items: flex-start; }
+
+    .message-bubble {
+      max-width: 75%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .message-user .message-bubble {
+      background: #1f3a6b;
+      color: #e0e0e0;
+    }
+
+    .message-assistant .message-bubble {
+      background: #1c2128;
+      color: #e0e0e0;
+      border: 1px solid #30363d;
+    }
+
+    .message-sources {
+      font-size: 0.75rem;
+      color: #8b949e;
+      padding: 0 4px;
+    }
+
+    .source-tag {
+      display: inline-block;
+      background: #1c2128;
+      border: 1px solid #30363d;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin: 2px;
+      font-size: 0.72rem;
+    }
+
+    .tool-trace {
+      font-size: 0.75rem;
+      color: #555;
+      padding: 4px 8px;
+      border-left: 2px solid #30363d;
+      margin-top: 4px;
+    }
+
+    .chat-input-wrap {
+      padding: 16px 20px;
+      border-top: 1px solid #30363d;
+      background: #161b22;
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      padding: 10px 14px;
+      resize: none;
+      font-family: inherit;
+      max-height: 120px;
+    }
+
+    .chat-input:focus { outline: none; border-color: #58a6ff; }
+
+    .send-btn {
+      background: #238636;
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1.1rem;
+      width: 44px;
+      cursor: pointer;
+      transition: background 0.2s;
+      align-self: flex-end;
+      height: 44px;
+    }
+
+    .send-btn:hover { background: #2ea043; }
+    .send-btn:disabled { background: #333; cursor: not-allowed; }
+
+    /* ── Sidebar panels ── */
+    .sidebar-section {
+      padding: 16px;
+      border-bottom: 1px solid #30363d;
+    }
+
+    .sidebar-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #58a6ff;
+      margin-bottom: 10px;
+    }
+
+    /* ── Add document ── */
+    .add-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+
+    .add-tab {
+      flex: 1;
+      background: none;
+      border: 1px solid #30363d;
+      color: #8b949e;
+      padding: 5px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: all 0.2s;
+    }
+
+    .add-tab.active {
+      background: #1f3a6b;
+      border-color: #58a6ff;
+      color: #58a6ff;
+    }
+
+    .add-panel { display: none; }
+    .add-panel.active { display: block; }
+
+    input, textarea, select {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 0.82rem;
+      padding: 8px 10px;
+      font-family: inherit;
+      margin-bottom: 8px;
+    }
+
+    input:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+    textarea { resize: vertical; min-height: 60px; }
+
+    .btn {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary { background: #238636; color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-secondary { background: #1f3a6b; color: #58a6ff; margin-top: 6px; }
+    .btn-secondary:hover { background: #264a8a; }
+    .btn-danger { background: #3d0f0f; color: #f85149; margin-top: 4px; }
+    .btn-danger:hover { background: #5a1515; }
+
+    .msg { font-size: 0.78rem; margin-top: 6px; min-height: 18px; }
+    .msg-success { color: #3fb950; }
+    .msg-error   { color: #f85149; }
+
+    /* ── Document list ── */
+    .doc-list { overflow-y: auto; flex: 1; }
+
+    .doc-item {
+      padding: 10px 16px;
+      border-bottom: 1px solid #1c2128;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .doc-item:hover { background: #1c2128; }
+    .doc-item.selected { background: #1f3a6b; }
+
+    .doc-title {
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .doc-meta {
+      font-size: 0.72rem;
+      color: #555;
+      display: flex;
+      gap: 8px;
+    }
+
+    .type-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
+
+    .type-pdf   { background: #3d1a0d; color: #f0883e; }
+    .type-url   { background: #0d2a0d; color: #3fb950; }
+    .type-text  { background: #1f3a6b; color: #58a6ff; }
+    .type-gdoc  { background: #2a1d0d; color: #d29922; }
+
+    /* ── Document detail ── */
+    .panel {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .panel-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #58a6ff;
+      margin-bottom: 14px;
+    }
+
+    .detail-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+
+    .detail-label { color: #8b949e; width: 100px; flex-shrink: 0; }
+    .detail-value { color: #c9d1d9; }
+
+    .tag {
+      display: inline-block;
+      background: #1c2128;
+      border: 1px solid #30363d;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      color: #8b949e;
+      margin: 2px;
+    }
+
+    /* ── Sync status ── */
+    .sync-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      margin-bottom: 6px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .dot-green  { background: #3fb950; }
+    .dot-yellow { background: #d29922; }
+    .dot-grey   { background: #555; }
+
+    /* ── Empty ── */
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: #555;
+      font-size: 0.85rem;
+    }
+
+    /* ── Thinking indicator ── */
+    .thinking {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+    }
+
+    .thinking span {
+      width: 6px;
+      height: 6px;
+      background: #58a6ff;
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+
+    .thinking span:nth-child(2) { animation-delay: 0.2s; }
+    .thinking span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+      40%           { transform: scale(1.2); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <h1>🧠 Phoenix KB</h1>
+  <span class="nav-badge">Personal Knowledge Base</span>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('chat', this)">Chat</button>
+    <button class="tab-btn" onclick="switchTab('docs', this)">Documents</button>
+    <button class="tab-btn" onclick="switchTab('sync', this)">Sync</button>
+  </div>
+  <div class="nav-stats">
+    <div>Docs: <span id="stat-docs">—</span></div>
+    <div>Chunks: <span id="stat-chunks">—</span></div>
+  </div>
+</nav>
+
+<div class="main">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+
+    <!-- Add document -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Add Document</div>
+      <div class="add-tabs">
+        <button class="add-tab active" onclick="switchAddTab('url', this)">URL</button>
+        <button class="add-tab" onclick="switchAddTab('file', this)">File</button>
+        <button class="add-tab" onclick="switchAddTab('text', this)">Text</button>
+        <button class="add-tab" onclick="switchAddTab('gdoc', this)">GDoc</button>
+      </div>
+
+      <!-- URL -->
+      <div id="add-url" class="add-panel active">
+        <input id="url-input" type="text" placeholder="https://...">
+        <input id="url-tags" type="text" placeholder="Tags (comma separated)">
+        <button class="btn btn-primary" onclick="addURL()">Save Page</button>
+        <div class="msg" id="url-msg"></div>
+      </div>
+
+      <!-- File -->
+      <div id="add-file" class="add-panel">
+        <input id="file-input" type="file" accept=".pdf,.txt,.md,.markdown,.rst">
+        <input id="file-tags" type="text" placeholder="Tags (comma separated)">
+        <button class="btn btn-primary" onclick="addFile()">Upload File</button>
+        <div class="msg" id="file-msg"></div>
+      </div>
+
+      <!-- Text -->
+      <div id="add-text" class="add-panel">
+        <input id="text-title" type="text" placeholder="Title">
+        <textarea id="text-input" placeholder="Paste text here..."></textarea>
+        <input id="text-tags" type="text" placeholder="Tags (comma separated)">
+        <button class="btn btn-primary" onclick="addText()">Save Text</button>
+        <div class="msg" id="text-msg"></div>
+      </div>
+
+      <!-- GDoc -->
+      <div id="add-gdoc" class="add-panel">
+        <input id="gdoc-input" type="text" placeholder="Google Doc ID">
+        <input id="gdoc-tags" type="text" placeholder="Tags (comma separated)">
+        <button class="btn btn-primary" onclick="addGDoc()">Import Doc</button>
+        <button class="btn btn-secondary" onclick="connectGoogle()">
+          Connect Google
+        </button>
+        <div class="msg" id="gdoc-msg"></div>
+      </div>
+    </div>
+
+    <!-- Document list -->
+    <div class="doc-list" id="doc-list">
+      <div class="empty">No documents yet.<br>Add one above.</div>
+    </div>
+
+  </div>
+
+  <!-- ── Main content ── -->
+  <div class="content">
+
+    <!-- Chat view -->
+    <div id="view-chat" class="view active">
+      <div class="chat-messages" id="chat-messages">
+        <div class="empty" style="margin-top: 60px;">
+          Ask anything about your knowledge base.<br>
+          <span style="font-size:0.8rem; color:#444;">
+            Try: "what do I have saved?" or "summarize my notes on X"
+          </span>
+        </div>
+      </div>
+      <div class="chat-input-wrap">
+        <textarea
+          class="chat-input"
+          id="chat-input"
+          placeholder="Ask your knowledge base..."
+          rows="1"
+          onkeydown="handleChatKey(event)"
+        ></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">↑</button>
+      </div>
+    </div>
+
+    <!-- Documents view -->
+    <div id="view-docs" class="view">
+      <div id="doc-detail">
+        <div class="empty">Select a document from the sidebar to view details.</div>
+      </div>
+    </div>
+
+    <!-- Sync view -->
+    <div id="view-sync" class="view">
+      <div class="panel">
+        <div class="panel-title">Google Docs Sync</div>
+        <div id="sync-status-content">
+          <div class="empty">Loading sync status...</div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:12px;" onclick="triggerSync()">
+          Sync Now
+        </button>
+        <div class="msg" id="sync-msg"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let conversation  = [];
+  let selectedDocId = null;
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  window.onload = () => {
+    loadDocuments();
+    loadStats();
+    loadSyncStatus();
+  };
+
+  // ── Tab switching ─────────────────────────────────────────────────────────
+
+  function switchTab(name, btn) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById(`view-${name}`).classList.add("active");
+    btn.classList.add("active");
+    if (name === "sync") loadSyncStatus();
+  }
+
+  function switchAddTab(name, btn) {
+    document.querySelectorAll(".add-tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".add-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`add-${name}`).classList.add("active");
+  }
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
+
+  function handleChatKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById("chat-input");
+    const msg   = input.value.trim();
+    if (!msg) return;
+
+    input.value = "";
+    document.getElementById("send-btn").disabled = true;
+
+    // Clear empty state
+    const messagesEl = document.getElementById("chat-messages");
+    if (messagesEl.querySelector(".empty")) {
+      messagesEl.innerHTML = "";
+    }
+
+    // Show user message
+    appendMessage("user", msg);
+
+    // Show thinking indicator
+    const thinkingId = appendThinking();
+
+    try {
+      const res  = await fetch("/ask", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ message: msg, conversation })
+      });
+      const data = await res.json();
+
+      removeThinking(thinkingId);
+
+      if (data.error) {
+        appendMessage("assistant", `Error: ${data.error}`);
+      } else {
+        appendMessage("assistant", data.answer, data.sources, data.tool_calls);
+        // Maintain conversation history for multi-turn
+        conversation.push({ role: "user",      content: msg });
+        conversation.push({ role: "assistant", content: data.answer });
+        // Keep last 10 turns
+        if (conversation.length > 20) conversation = conversation.slice(-20);
+      }
+
+    } catch (e) {
+      removeThinking(thinkingId);
+      appendMessage("assistant", `Request failed: ${e.message}`);
+    }
+
+    document.getElementById("send-btn").disabled = false;
+    input.focus();
+  }
+
+  function appendMessage(role, text, sources = [], toolCalls = []) {
+    const el = document.createElement("div");
+    el.className = `message message-${role}`;
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+    bubble.textContent = text;
+    el.appendChild(bubble);
+
+    if (sources && sources.length) {
+      const sourcesEl = document.createElement("div");
+      sourcesEl.className = "message-sources";
+      sourcesEl.innerHTML = "Sources: " + sources.map(s =>
+        `<span class="source-tag">${s}</span>`
+      ).join("");
+      el.appendChild(sourcesEl);
+    }
+
+    if (toolCalls && toolCalls.length) {
+      const trace = document.createElement("div");
+      trace.className = "tool-trace";
+      trace.textContent = `Used: ${toolCalls.map(t => t.tool).join(" → ")}`;
+      el.appendChild(trace);
+    }
+
+    document.getElementById("chat-messages").appendChild(el);
+    el.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function appendThinking() {
+    const id = `thinking-${Date.now()}`;
+    const el = document.createElement("div");
+    el.id        = id;
+    el.className = "message message-assistant";
+    el.innerHTML = `
+      <div class="thinking">
+        <span></span><span></span><span></span>
+      </div>`;
+    document.getElementById("chat-messages").appendChild(el);
+    el.scrollIntoView({ behavior: "smooth" });
+    return id;
+  }
+
+  function removeThinking(id) {
+    document.getElementById(id)?.remove();
+  }
+
+  // ── Add documents ─────────────────────────────────────────────────────────
+
+  async function addURL() {
+    const url  = document.getElementById("url-input").value.trim();
+    const tags = document.getElementById("url-tags").value.trim();
+    if (!url) { setMsg("url-msg", "URL is required", "error"); return; }
+
+    setMsg("url-msg", "Fetching...", "");
+    try {
+      const res  = await fetch("/ingest/url", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ url, tags: tags ? tags.split(",").map(t => t.trim()) : [] })
+      });
+      const data = await res.json();
+      if (data.error) { setMsg("url-msg", data.error, "error"); return; }
+      setMsg("url-msg", `✓ Saved: ${data.title}`, "success");
+      document.getElementById("url-input").value = "";
+      loadDocuments(); loadStats();
+    } catch (e) { setMsg("url-msg", e.message, "error"); }
+  }
+
+  async function addFile() {
+    const fileInput = document.getElementById("file-input");
+    const tags      = document.getElementById("file-tags").value.trim();
+    if (!fileInput.files[0]) { setMsg("file-msg", "Select a file first", "error"); return; }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    if (tags) formData.append("tags", tags);
+
+    setMsg("file-msg", "Uploading...", "");
+    try {
+      const res  = await fetch("/ingest/file", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.error) { setMsg("file-msg", data.error, "error"); return; }
+      setMsg("file-msg", `✓ Saved: ${data.title}`, "success");
+      fileInput.value = "";
+      loadDocuments(); loadStats();
+    } catch (e) { setMsg("file-msg", e.message, "error"); }
+  }
+
+  async function addText() {
+    const text  = document.getElementById("text-input").value.trim();
+    const title = document.getElementById("text-title").value.trim();
+    const tags  = document.getElementById("text-tags").value.trim();
+    if (!text) { setMsg("text-msg", "Text is required", "error"); return; }
+
+    setMsg("text-msg", "Saving...", "");
+    try {
+      const res  = await fetch("/ingest/text", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ text, title, tags: tags ? tags.split(",").map(t => t.trim()) : [] })
+      });
+      const data = await res.json();
+      if (data.error) { setMsg("text-msg", data.error, "error"); return; }
+      setMsg("text-msg", `✓ Saved: ${data.title}`, "success");
+      document.getElementById("text-input").value = "";
+      document.getElementById("text-title").value = "";
+      loadDocuments(); loadStats();
+    } catch (e) { setMsg("text-msg", e.message, "error"); }
+  }
+
+  async function addGDoc() {
+    const docId = document.getElementById("gdoc-input").value.trim();
+    const tags  = document.getElementById("gdoc-tags").value.trim();
+    if (!docId) { setMsg("gdoc-msg", "Doc ID is required", "error"); return; }
+
+    setMsg("gdoc-msg", "Importing...", "");
+    try {
+      const res  = await fetch("/ingest/gdoc", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ doc_id: docId, tags: tags ? tags.split(",").map(t => t.trim()) : [] })
+      });
+      const data = await res.json();
+      if (data.auth_required) {
+        setMsg("gdoc-msg", "Connect Google first ↓", "error");
+        return;
+      }
+      if (data.error) { setMsg("gdoc-msg", data.error, "error"); return; }
+      setMsg("gdoc-msg", `✓ Imported: ${data.title}`, "success");
+      document.getElementById("gdoc-input").value = "";
+      loadDocuments(); loadStats();
+    } catch (e) { setMsg("gdoc-msg", e.message, "error"); }
+  }
+
+  function connectGoogle() {
+    window.open("/auth/google", "_blank", "width=500,height=600");
+  }
+
+  // ── Document list ─────────────────────────────────────────────────────────
+
+  async function loadDocuments() {
+    try {
+      const res  = await fetch("/documents");
+      const data = await res.json();
+      renderDocList(data.documents || []);
+    } catch (e) { console.error("Failed to load documents:", e); }
+  }
+
+  function renderDocList(docs) {
+    const el = document.getElementById("doc-list");
+
+    if (!docs.length) {
+      el.innerHTML = '<div class="empty">No documents yet.<br>Add one above.</div>';
+      return;
+    }
+
+    el.innerHTML = docs.map(doc => `
+      <div class="doc-item ${doc.doc_id === selectedDocId ? 'selected' : ''}"
+           onclick="selectDoc('${doc.doc_id}')">
+        <div class="doc-title">${doc.title}</div>
+        <div class="doc-meta">
+          <span class="type-badge type-${doc.source_type}">${doc.source_type}</span>
+          <span>${doc.chunk_count} chunks</span>
+          ${doc.tags.length ? `<span>${doc.tags.slice(0,2).join(", ")}</span>` : ""}
+        </div>
+      </div>
+    `).join("");
+  }
+
+  async function selectDoc(docId) {
+    selectedDocId = docId;
+    loadDocuments(); // re-render to update selected state
+
+    // Switch to docs tab
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById("view-docs").classList.add("active");
+    document.querySelectorAll(".tab-btn")[1].classList.add("active");
+
+    try {
+      const res  = await fetch(`/documents/${docId}`);
+      const doc  = await res.json();
+      renderDocDetail(doc);
+    } catch (e) { console.error("Failed to load document:", e); }
+  }
+
+  function renderDocDetail(doc) {
+    const tags = doc.tags.length
+      ? doc.tags.map(t => `<span class="tag">${t}</span>`).join("")
+      : '<span style="color:#555">none</span>';
+
+    const sourceLink = doc.source_type === "url"
+      ? `<a href="${doc.source_path}" target="_blank" style="color:#58a6ff;">${doc.source_path}</a>`
+      : doc.source_path;
+
+    document.getElementById("doc-detail").innerHTML = `
+      <div class="panel">
+        <div class="panel-title">Document Details</div>
+
+        <div class="detail-row">
+          <div class="detail-label">Title</div>
+          <div class="detail-value">${doc.title}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Type</div>
+          <div class="detail-value">
+            <span class="type-badge type-${doc.source_type}">${doc.source_type}</span>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Source</div>
+          <div class="detail-value" style="word-break:break-all; font-size:0.8rem;">
+            ${sourceLink}
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Chunks</div>
+          <div class="detail-value">${doc.chunk_count}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Characters</div>
+          <div class="detail-value">${doc.char_count.toLocaleString()}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Added</div>
+          <div class="detail-value">${new Date(doc.created_at).toLocaleDateString()}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">Tags</div>
+          <div class="detail-value">${tags}</div>
+        </div>
+        ${doc.summary ? `
+          <div class="detail-row" style="flex-direction:column; gap:6px;">
+            <div class="detail-label">Summary</div>
+            <div style="font-size:0.85rem; color:#c9d1d9; line-height:1.6;">
+              ${doc.summary}
+            </div>
+          </div>` : ""}
+
+        <button class="btn btn-danger" onclick="deleteDoc('${doc.doc_id}')">
+          Delete Document
+        </button>
+      </div>
+    `;
+  }
+
+  async function deleteDoc(docId) {
+    if (!confirm("Delete this document and all its chunks?")) return;
+    try {
+      await fetch(`/documents/${docId}`, { method: "DELETE" });
+      selectedDocId = null;
+      document.getElementById("doc-detail").innerHTML =
+        '<div class="empty">Document deleted.</div>';
+      loadDocuments();
+      loadStats();
+    } catch (e) { console.error("Delete failed:", e); }
+  }
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+
+  async function loadStats() {
+    try {
+      const res  = await fetch("/stats");
+      const data = await res.json();
+      document.getElementById("stat-docs").textContent   = data.total_documents;
+      document.getElementById("stat-chunks").textContent = data.total_chunks;
+    } catch (e) {}
+  }
+
+  // ── Sync ──────────────────────────────────────────────────────────────────
+
+  async function loadSyncStatus() {
+    try {
+      const res  = await fetch("/sync/status");
+      const data = await res.json();
+      renderSyncStatus(data);
+    } catch (e) {}
+  }
+
+  function renderSyncStatus(data) {
+    const authDot  = data.authenticated ? "dot-green" : "dot-grey";
+    const authText = data.authenticated ? "Connected" : "Not connected";
+    const modeDot  = data.is_running ? "dot-green" : "dot-yellow";
+
+    document.getElementById("sync-status-content").innerHTML = `
+      <div class="sync-row">
+        <span>Mode</span>
+        <span style="color:#c9d1d9; text-transform:capitalize;">${data.mode}</span>
+      </div>
+      <div class="sync-row">
+        <span>Google Account</span>
+        <span>
+          <span class="status-dot ${authDot}"></span>${authText}
+        </span>
+      </div>
+      <div class="sync-row">
+        <span>Status</span>
+        <span>
+          <span class="status-dot ${modeDot}"></span>
+          ${data.mode === "realtime" ? (data.is_running ? "Running" : "Stopped") : "On demand"}
+        </span>
+      </div>
+      ${data.last_sync ? `
+        <div class="sync-row">
+          <span>Last sync</span>
+          <span style="color:#8b949e;">
+            ${new Date(data.last_sync).toLocaleString()}
+          </span>
+        </div>` : ""}
+      ${data.last_result ? `
+        <div style="font-size:0.78rem; color:#555; margin-top:8px;">
+          ${data.last_result}
+        </div>` : ""}
+      ${data.is_stale ? `
+        <div style="color:#d29922; font-size:0.78rem; margin-top:8px;">
+          ⚠️ Sync may have stalled — last run was more than ${data.interval * 2}s ago
+        </div>` : ""}
+    `;
+  }
+
+  async function triggerSync() {
+    setMsg("sync-msg", "Syncing...", "");
+    try {
+      const res  = await fetch("/sync", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await res.json();
+      if (data.error) { setMsg("sync-msg", data.error, "error"); return; }
+      setMsg("sync-msg", data.summary, "success");
+      loadDocuments();
+      loadStats();
+      loadSyncStatus();
+    } catch (e) { setMsg("sync-msg", e.message, "error"); }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function setMsg(id, text, type) {
+    const el       = document.getElementById(id);
+    el.textContent = text;
+    el.className   = `msg ${type === "success" ? "msg-success" : type === "error" ? "msg-error" : ""}`;
+  }
+</script>
+</body>
+</html>
+
+<!-- Three views in one page —
+Chat for Q&A with full conversation history and tool trace,
+Documents for browsing and managing what's in the KB,
+and Sync for Google Docs status and manual trigger.
+The sidebar stays persistent across all three views so you can add documents without leaving the chat. -->
