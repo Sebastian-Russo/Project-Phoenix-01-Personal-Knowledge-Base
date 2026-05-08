@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 300px;
+      background: #0d1117;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 16px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    header h1 {
+      font-size: 1rem;
+      color: #58a6ff;
+      font-weight: 700;
+    }
+
+    .page-title {
+      font-size: 0.8rem;
+      color: #8b949e;
+      margin-bottom: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    input {
+      width: 100%;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 0.82rem;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      font-family: inherit;
+    }
+
+    input:focus { outline: none; border-color: #58a6ff; }
+
+    button {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-save {
+      background: #238636;
+      color: #fff;
+    }
+
+    .btn-save:hover    { background: #2ea043; }
+    .btn-save:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+    .btn-open {
+      background: #1f3a6b;
+      color: #58a6ff;
+      margin-top: 6px;
+      font-size: 0.78rem;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 0.8rem;
+      text-align: center;
+      min-height: 20px;
+    }
+
+    .status-success { color: #3fb950; }
+    .status-error   { color: #f85149; }
+    .status-loading { color: #58a6ff; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span>🧠</span>
+  <h1>Phoenix KB</h1>
+</header>
+
+<div class="page-title" id="page-title">Loading...</div>
+
+<input
+  id="tags-input"
+  type="text"
+  placeholder="Tags (comma separated, optional)"
+>
+
+<button class="btn-save" id="save-btn" onclick="savePage()">
+  Save to Knowledge Base
+</button>
+
+<button class="btn-open" onclick="openDashboard()">
+  Open Dashboard
+</button>
+
+<div class="status" id="status"></div>
+
+<script src="popup.js"></script>
+</body>
+</html>
