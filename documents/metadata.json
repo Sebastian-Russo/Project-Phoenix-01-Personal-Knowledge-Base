@@ -1,0 +1,23 @@
+{
+  "doc_8a456abe_de40c5eb": {
+    "doc_id": "doc_8a456abe_de40c5eb",
+    "title": "Authentic Italian Tomato Sauce \u2013 Quick, Easy & Delicious",
+    "source_type": "url",
+    "source_path": "https://www.insidetherustickitchen.com/authentic-italian-tomato-sauce-quick-easy-delicious/",
+    "created_at": "2026-05-09T16:28:31.190043+00:00",
+    "updated_at": "2026-05-09T16:28:31.190043+00:00",
+    "chunk_count": 91,
+    "char_count": 37349,
+    "content_hash": "22cc96625096b919f6bb85a70dfc41d0",
+    "tags": [
+      "recipe",
+      "italian"
+    ],
+    "summary": "",
+    "extra": {
+      "domain": "insidetherustickitchen.com",
+      "word_count": 3744,
+      "fetch_mode": "jina"
+    }
+  }
+}

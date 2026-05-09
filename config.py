@@ -48,6 +48,10 @@ RETRIEVAL_TOP_K   = 20       # how many chunks to fetch before reranking
 RERANK_TOP_K      = 5        # how many chunks to keep after reranking
 SIMILARITY_THRESHOLD = 0.3   # minimum similarity score to include a chunk
 
+# ── URL Ingestion ──────────────────────────────────────────────────────────
+# Controls how the URL ingester cleans and extracts content from web pages.
+URL_FETCH_MODE = os.getenv("URL_FETCH_MODE", "jina") # "jina" | "playwright"
+
 # ── Google OAuth ───────────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID       = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET   = os.getenv("GOOGLE_CLIENT_SECRET", "")

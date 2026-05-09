@@ -1,44 +1,30 @@
 """
 Fetches and cleans web pages for ingestion into the knowledge base.
 
-The web is messy. A raw HTML page contains navigation menus,
-cookie banners, ads, footers, social share buttons, and scripts
-— most of which is noise we don't want in our knowledge base.
+Two fetch strategies, swappable via URL_FETCH_MODE in .env:
 
-Our job is to:
-1. Fetch the page
-2. Strip all the noise (nav, footer, ads, scripts, styles)
-3. Extract the main content
-4. Convert to clean markdown for consistent chunking
-5. Pull useful metadata (title, author, publish date)
+- jina:       sends URL to r.jina.ai which renders JS and returns
+              clean markdown. One line of code, handles modern sites.
+              Best for public web pages.
 
-Think of it like a newspaper — we want the article text,
-not the masthead, ads, and crossword puzzle.
+- playwright: launches a real browser locally, executes JavaScript,
+              returns the fully rendered HTML. Slower but handles
+              sites requiring login, cookies, or complex interactions.
+              Best for authenticated pages (bank statements, utility bills).
+
+The fetch strategy is selected at startup — the rest of the ingestion
+pipeline (cleaning, metadata extraction) works the same either way.
 """
 
 import re
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from markdownify import markdownify
 from urllib.parse import urlparse
-from config import DOCS_DIR
+from config import DOCS_DIR, URL_FETCH_MODE
 
+# ── Config ─────────────────────────────────────────────────────────────────
 
-# HTML elements that are almost always noise
-NOISE_TAGS = [
-    "script", "style", "nav", "footer", "header",
-    "aside", "form", "button", "iframe", "noscript",
-    "svg", "figure", "figcaption", "advertisement"
-]
-
-# CSS classes/IDs that suggest noise content
-NOISE_PATTERNS = [
-    "nav", "menu", "sidebar", "footer", "header", "banner",
-    "cookie", "popup", "modal", "ad", "advertisement",
-    "social", "share", "comment", "related", "recommended"
-]
-
-# Request headers — identify as a browser to avoid bot blocks
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -49,13 +35,31 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-REQUEST_TIMEOUT = 15  # seconds
+REQUEST_TIMEOUT = 20
+
+# Noise tags and patterns for HTML cleaning (used by playwright mode)
+NOISE_TAGS = [
+    "script", "style", "nav", "footer", "header",
+    "aside", "form", "button", "iframe", "noscript",
+    "svg", "figure", "figcaption", "advertisement"
+]
+
+NOISE_PATTERNS = [
+    "nav", "menu", "sidebar", "footer", "header", "banner",
+    "cookie", "popup", "modal", "ad", "advertisement",
+    "social", "share", "comment", "related", "recommended"
+]
 
 
 class URLIngester:
     """
     Fetches and extracts clean text from web URLs.
+    Delegates to JinaFetcher or PlaywrightFetcher based on URL_FETCH_MODE.
     """
+
+    def __init__(self):
+        self.mode = URL_FETCH_MODE
+        print(f"[URLIngester] Mode: {self.mode}")
 
     def ingest(self, url: str) -> dict:
         """
@@ -71,172 +75,206 @@ class URLIngester:
         url = url.strip()
         self._validate_url(url)
 
-        print(f"[URLIngester] Fetching: {url}")
+        print(f"[URLIngester] Fetching ({self.mode}): {url}")
 
-        html  = self._fetch(url)
-        soup  = BeautifulSoup(html, "html.parser")
-        meta  = self._extract_meta(soup, url)
-        text  = self._extract_text(soup)
+        if self.mode == "jina":
+            return self._ingest_jina(url)
+        elif self.mode == "playwright":
+            return self._ingest_playwright(url)
+        else:
+            raise ValueError(f"Unknown URL_FETCH_MODE: {self.mode}. Use 'jina' or 'playwright'")
 
-        if not text.strip():
-            raise ValueError(f"No readable content found at: {url}")
+    # ── Jina strategy ──────────────────────────────────────────────────────
+
+    def _ingest_jina(self, url: str) -> dict:
+        """
+        Fetch via Jina Reader API — prepend r.jina.ai to any URL.
+
+        Jina renders JavaScript on their end and returns clean markdown.
+        No scraping, no HTML parsing, no noise removal needed.
+        The returned content is already formatted for chunking.
+        """
+        jina_url = f"https://r.jina.ai/{url}"
+
+        try:
+            response = requests.get(
+                jina_url,
+                headers = {
+                    **HEADERS,
+                    "Accept": "text/markdown",   # request markdown output
+                    "X-Return-Format": "markdown" # Jina-specific header
+                },
+                timeout = REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            raw = response.text
+
+        except requests.exceptions.Timeout:
+            raise TimeoutError(f"Jina request timed out after {REQUEST_TIMEOUT}s: {url}")
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(f"Could not connect to Jina Reader: {url}")
+        except requests.exceptions.HTTPError as e:
+            raise ValueError(f"Jina returned HTTP {e.response.status_code} for: {url}")
+
+        if not raw.strip():
+            raise ValueError(f"Jina returned empty content for: {url}")
+
+        # Jina includes a header block at the top with title, URL, etc.
+        # Extract title from it if present, then strip it from content
+        title, text = self._parse_jina_response(raw, url)
 
         word_count = len(text.split())
-        print(f"[URLIngester] Extracted {word_count} words from {meta['domain']}")
+        domain     = urlparse(url).netloc.replace("www.", "")
+
+        print(f"[URLIngester] Jina extracted {word_count} words from {domain}")
 
         return {
             "text":        text,
-            "title":       meta["title"],
+            "title":       title,
             "source_path": url,
             "source_type": "url",
             "extra": {
-                **meta,
-                "word_count": word_count
+                "domain":     domain,
+                "word_count": word_count,
+                "fetch_mode": "jina"
             }
         }
 
-    # ── Private ────────────────────────────────────────────────────────────
-
-    def _fetch(self, url: str) -> str:
+    def _parse_jina_response(self, raw: str, url: str) -> tuple[str, str]:
         """
-        Fetch HTML from a URL with sensible timeout and error handling.
-        """
-        try:
-            response = requests.get(
-                url,
-                headers = HEADERS,
-                timeout = REQUEST_TIMEOUT,
-                allow_redirects = True
-            )
-            response.raise_for_status()
-            return response.text
+        Jina Reader prepends a metadata block to the markdown:
 
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"Request timed out after {REQUEST_TIMEOUT}s: {url}")
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError(f"Could not connect to: {url}")
-        except requests.exceptions.HTTPError as e:
-            raise ValueError(f"HTTP {e.response.status_code} from: {url}")
+        Title: Page Title Here
+        URL Source: https://...
+        Markdown Content:
+        ... actual content ...
 
-    def _extract_text(self, soup: BeautifulSoup) -> str:
+        Extract the title and strip the header block.
         """
-        Extract clean readable text from parsed HTML.
+        title  = urlparse(url).netloc.replace("www.", "")  # fallback
+        text   = raw
 
-        Strategy:
-        1. Remove all noise elements (nav, footer, scripts, etc.)
-        2. Try to find the main content container
-        3. Fall back to the body if no main container found
-        4. Convert to markdown for clean structure preservation
-        5. Clean up excessive whitespace
+        lines  = raw.splitlines()
+
+        # Look for Jina's header block
+        content_start = 0
+        for i, line in enumerate(lines):
+            if line.startswith("Title:"):
+                title = line.replace("Title:", "").strip()
+            if line.startswith("Markdown Content:") or line.strip() == "":
+                if i > 2:  # only skip if we found actual headers above
+                    content_start = i + 1
+                    break
+
+        if content_start > 0:
+            text = "\n".join(lines[content_start:]).strip()
+
+        # Clean up excessive blank lines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return title, text
+
+    # ── Playwright strategy ────────────────────────────────────────────────
+
+    def _ingest_playwright(self, url: str) -> dict:
         """
-        # Step 1 — remove noise tags entirely
+        Fetch via Playwright — launches a real Chromium browser locally.
+
+        Use this for:
+        - Sites requiring login (bank statements, utility bills)
+        - Sites with heavy bot detection that blocks Jina
+        - Pages behind authentication cookies
+
+        Requires: pip install playwright && playwright install chromium
+
+        ── Placeholder ──
+        Full implementation coming in Phoenix 02 (Workflow Automation)
+        when we need authenticated access to bank and utility sites.
+        The interface is identical to _ingest_jina() so swapping
+        URL_FETCH_MODE=playwright will work without changing anything else.
+        """
+        # ── TODO: Phoenix 02 ───────────────────────────────────
+        # from playwright.sync_api import sync_playwright
+        #
+        # with sync_playwright() as p:
+        #     browser = p.chromium.launch(headless=True)
+        #     page    = browser.new_page()
+        #     page.goto(url, wait_until="networkidle")
+        #     html    = page.content()
+        #     browser.close()
+        #
+        # soup  = BeautifulSoup(html, "html.parser")
+        # meta  = self._extract_meta_from_soup(soup, url)
+        # text  = self._extract_text_from_soup(soup)
+        # return { "text": text, "title": meta["title"], ... }
+        # ───────────────────────────────────────────────────────
+
+        raise NotImplementedError(
+            "Playwright mode is not yet implemented. "
+            "Set URL_FETCH_MODE=jina in .env to use Jina Reader. "
+            "Playwright support is coming in Phoenix 02."
+        )
+
+    # ── Shared HTML extraction (used by playwright when implemented) ───────
+
+    def _extract_text_from_soup(self, soup: BeautifulSoup) -> str:
+        """
+        Extract clean text from BeautifulSoup object.
+        Shared utility for the Playwright strategy.
+        """
+        # Remove noise tags
         for tag in NOISE_TAGS:
             for el in soup.find_all(tag):
                 el.decompose()
 
-        # Remove elements whose class or id suggests they're noise
+        # Remove noise by class/id
         for el in soup.find_all(True):
+            if not isinstance(el, Tag):
+                continue
             el_class = " ".join(el.get("class", [])).lower()
             el_id    = (el.get("id") or "").lower()
             combined = f"{el_class} {el_id}"
-
             if any(pattern in combined for pattern in NOISE_PATTERNS):
                 el.decompose()
 
-        # Step 2 — find main content container
-        # Try semantic HTML5 elements first, then common class names
+        # Find main content
         main_content = (
             soup.find("article") or
             soup.find("main")    or
-            soup.find(class_=re.compile(r"(article|post|content|entry)[_-]?(body|text|main)?", re.I)) or
+            soup.find(class_=re.compile(
+                r"(article|post|content|entry)[_-]?(body|text|main)?", re.I
+            )) or
             soup.find("body")
         )
 
         if not main_content:
             return ""
 
-        # Step 3 — convert to markdown
-        # markdownify preserves headings, lists, and code blocks
-        # which helps the chunker identify natural split points
         markdown = markdownify(
             str(main_content),
-            heading_style = "ATX",    # # H1, ## H2 style
-            bullets       = "-",       # use - for bullet points
-            strip         = ["a"]      # strip links but keep link text
+            heading_style = "ATX",
+            bullets       = "-",
+            strip         = ["a"]
         )
 
-        # Step 4 — clean up
-        return self._clean_markdown(markdown)
+        return re.sub(r'\n{3,}', '\n\n', markdown).strip()
 
-    def _clean_markdown(self, text: str) -> str:
-        """
-        Clean common artifacts from markdownify output.
-        """
-        # Collapse 3+ blank lines to 2
-        text = re.sub(r'\n{3,}', '\n\n', text)
-
-        # Remove lines that are just punctuation or special chars
-        lines   = text.splitlines()
-        cleaned = [
-            line for line in lines
-            if not re.match(r'^[\s\|\-\*\_\=\#\.]{0,3}$', line)
-        ]
-
-        # Remove duplicate consecutive lines (repeated headers etc.)
-        deduped = []
-        prev    = None
-        for line in cleaned:
-            if line.strip() != prev:
-                deduped.append(line)
-                prev = line.strip()
-
-        return "\n".join(deduped).strip()
-
-    def _extract_meta(self, soup: BeautifulSoup, url: str) -> dict:
-        """
-        Extract page metadata from HTML meta tags.
-        Falls back gracefully when tags are missing.
-        """
-        domain = urlparse(url).netloc.replace("www.", "")
-
-        # Title: try og:title → <title> → domain name
-        og_title   = soup.find("meta", property="og:title")
-        title_tag  = soup.find("title")
-        title      = (
-            (og_title["content"] if og_title else None) or
-            (title_tag.get_text() if title_tag else None) or
+    def _extract_meta_from_soup(self, soup: BeautifulSoup, url: str) -> dict:
+        """Extract metadata from BeautifulSoup object."""
+        domain    = urlparse(url).netloc.replace("www.", "")
+        og_title  = soup.find("meta", property="og:title")
+        title_tag = soup.find("title")
+        title     = (
+            (og_title.get("content") if og_title else None) or
+            (title_tag.get_text()    if title_tag else None) or
             domain
         )
-
-        # Description: try og:description → meta description
-        og_desc    = soup.find("meta", property="og:description")
-        meta_desc  = soup.find("meta", attrs={"name": "description"})
-        description = (
-            (og_desc["content"]   if og_desc   else None) or
-            (meta_desc["content"] if meta_desc else None) or
-            ""
-        )
-
-        # Author
-        author_tag  = soup.find("meta", attrs={"name": "author"})
-        author      = author_tag["content"] if author_tag else ""
-
-        # Published date
-        date_tag    = (
-            soup.find("meta", property="article:published_time") or
-            soup.find("time")
-        )
-        published   = ""
-        if date_tag:
-            published = date_tag.get("content") or date_tag.get("datetime") or ""
-
         return {
-            "title":       title.strip(),
-            "domain":      domain,
-            "description": description.strip(),
-            "author":      author.strip(),
-            "published":   published.strip()
+            "title":  title.strip() if title else domain,
+            "domain": domain
         }
+
+    # ── Validation ─────────────────────────────────────────────────────────
 
     def _validate_url(self, url: str) -> None:
         """Basic URL validation before attempting a fetch."""
@@ -248,17 +286,6 @@ class URLIngester:
         if not parsed.netloc:
             raise ValueError(f"Invalid URL — no domain found: {url}")
 
-        # Block localhost and private IPs for security
-        # (the browser extension could be tricked into fetching internal resources)
         blocked = ["localhost", "127.0.0.1", "0.0.0.0", "192.168.", "10.", "172."]
         if any(parsed.netloc.startswith(b) for b in blocked):
             raise ValueError(f"Private/local URLs are not allowed: {url}")
-
-# The content extraction strategy deserves explanation.
-# We try <article> first because it's the semantic HTML5 element specifically meant for main page content
-# — a well-built site puts the article body there.
-# Then <main>, then class name pattern matching, then the full <body> as a last resort.
-# This cascade means we get clean content on well-built sites and still get something on poorly structured ones.
-# The localhost block in _validate_url is a security consideration for later
-# — when the browser extension is sending URLs to the Flask API, a malicious page could theoretically inject a localhost URL to probe your internal network.
-# Blocking it now costs nothing and prevents the problem.
