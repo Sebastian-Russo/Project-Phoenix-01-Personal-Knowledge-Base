@@ -135,6 +135,37 @@ The system is organized into six distinct layers. Each layer has one job. Nothin
 | Agent | KBAgent, KBTools | ReAct loop. Decides which tools to use and in what order. |
 
 ---
+### Embedder and Chunker Transformations
+**Chunker** splits raw text into chunks. Also just a transformation tool — no storage.
+
+**Embedder** converts chunks into vectors (numbers). It doesn't store anything — it's just a transformation tool. Input: text. Output: list of floats.
+
+So the processing layer is just transformations:
+*raw text → Chunker → chunks → Embedder → vectors*
+Nothing is stored yet at this point.
+
+**Then storage happens in two places simultaneously:**
+- **VectorStore (ChromaDB)** *stores the vectors + the chunk text + basic metadata.* This is what gets searched when you ask a question — *it's the searchable index*.
+- **MetadataStore** *stores document-level info in a JSON file* — *title, source URL, tags, chunk count, content hash, created date.* This is what powers the document list in the dashboard.
+- **DocumentStore** *is just the coordinator* that talks to both. It doesn't store anything itself — it *owns the Chunker, Embedder, VectorStore, and MetadataStore* and calls them in the right order.
+
+**The full flow:**
+raw text
+  → DocumentStore.ingest()
+      → Chunker splits into chunks
+      → Embedder converts chunks to vectors (numbers)
+      → VectorStore stores (vectors + chunk text)
+      → MetadataStore stores (document info)
+When you search:
+question
+  → Embedder converts question to vector (numbers)
+  → VectorStore finds nearby vectors → returns chunks
+  → (MetadataStore not involved in search at all)
+When you list documents in the dashboard:
+  → MetadataStore only — VectorStore not involved
+
+**So they serve completely different purposes — VectorStore is for search, MetadataStore is for document management. DocumentStore just makes sure they stay in sync.**
+---
 
 ## Key Design Decisions
 
