@@ -1,221 +1,166 @@
 """
-Coordinates all storage operations for a single document.
+Extracts text from PDF files for ingestion into the knowledge base.
 
-Think of this as the librarian — when a new document arrives,
-the librarian:
-1. Registers it in the card catalog (MetadataStore)
-2. Cuts it into index cards (Chunker)
-3. Converts each card into a GPS coordinate (Embedder)
-4. Files the cards by coordinate (VectorStore)
+PDFs are surprisingly complex under the hood — they're not just
+text files with formatting. A PDF is more like a canvas where
+text, images, and shapes are placed at exact coordinates.
+Extracting readable text means reconstructing the reading order
+from those coordinates.
 
-When a document is deleted, the librarian:
-1. Removes all its index cards from the filing system (VectorStore)
-2. Removes its entry from the card catalog (MetadataStore)
-
-Nothing else in the app talks to VectorStore or MetadataStore
-directly — everything goes through DocumentStore. This is the
-single point of truth for what's in the knowledge base.
+pypdf handles the heavy lifting. Our job is to:
+1. Extract text page by page
+2. Clean up the extraction artifacts (broken lines, headers/footers)
+3. Preserve enough structure for chunking to work well
+4. Pull useful metadata (title, author, page count) when available
 """
 
-from src.processing.chunker import Chunker
-from src.processing.embedder import Embedder
-from src.processing.metadata import (
-    MetadataStore,
-    DocumentMetadata,
-    create_metadata,
-    content_changed
-)
-from src.storage.vector_store import VectorStore
+from pathlib import Path
+import pypdf
+from config import DOCS_DIR
 
 
-class DocumentStore:
+class PDFIngester:
     """
-    Single interface for all document storage operations.
-
-    Owns one instance each of Chunker, Embedder, MetadataStore,
-    and VectorStore. Coordinates them to ingest, retrieve, and
-    delete documents.
+    Extracts clean text and metadata from PDF files.
     """
 
-    def __init__(self):
-        self.chunker       = Chunker()
-        self.embedder      = Embedder()
-        self.metadata      = MetadataStore()
-        self.vector_store  = VectorStore()
-
-    # ── Ingest ─────────────────────────────────────────────────────────────
-
-    def ingest(
-        self,
-        text:        str,
-        title:       str,
-        source_type: str,
-        source_path: str,
-        tags:        list[str] = None,
-        extra:       dict      = None,
-        force:       bool      = False
-    ) -> DocumentMetadata:
+    def ingest(self, file_path: str | Path) -> dict:
         """
-        Ingest a document into the knowledge base.
+        Extract text and metadata from a PDF file.
 
-        Steps:
-        1. Check if already ingested — skip if content unchanged
-        2. Create metadata entry
-        3. Chunk the text
-        4. Embed the chunks
-        5. Store chunks + embeddings in vector store
-        6. Save metadata
-
-        force=True skips the change detection and always re-ingests.
-        Useful when you've changed chunking or embedding parameters
-        and want to rebuild the index.
-
-        Returns the DocumentMetadata for the ingested document.
+        Returns a dict with:
+        - text:        full extracted text, ready for chunking
+        - title:       document title (from PDF metadata or filename)
+        - source_path: absolute path to the file
+        - source_type: always "pdf"
+        - extra:       author, page count, and other PDF metadata
         """
-        if not text or not text.strip():
-            raise ValueError("Cannot ingest empty document")
+        path = Path(file_path).resolve()
 
-        # ── Deduplication check ────────────────────────────────
-        existing = self.metadata.find_by_source(source_path)
+        if not path.exists():
+            raise FileNotFoundError(f"PDF not found: {path}")
 
-        if existing and not force:
-            if not content_changed(existing, text):
-                print(f"[DocumentStore] Skipping unchanged document: {title}")
-                return existing
+        if path.suffix.lower() != ".pdf":
+            raise ValueError(f"Not a PDF file: {path}")
 
-            # Content changed — delete old chunks before re-ingesting
-            print(f"[DocumentStore] Content changed — re-ingesting: {title}")
-            self.vector_store.delete_document(existing.doc_id)
-            doc_id = existing.doc_id
-        else:
-            doc_id = None
+        print(f"[PDFIngester] Reading: {path.name}")
 
-        # ── Build metadata ─────────────────────────────────────
-        metadata = create_metadata(
-            title       = title,
-            source_type = source_type,
-            source_path = source_path,
-            text        = text,
-            tags        = tags,
-            extra       = extra
-        )
+        with open(path, "rb") as f:
+            reader = pypdf.PdfReader(f)
+            meta   = self._extract_metadata(reader, path)
+            text   = self._extract_text(reader)
 
-        # Preserve original doc_id if re-ingesting
-        if doc_id:
-            metadata.doc_id = doc_id
+        if not text.strip():
+            raise ValueError(f"No text could be extracted from: {path.name}. "
+                           f"The PDF may be scanned images rather than text.")
 
-        # ── Chunk ──────────────────────────────────────────────
-        print(f"[DocumentStore] Chunking: {title}")
-        chunks = self.chunker.chunk_document(
-            text     = text,
-            doc_id   = metadata.doc_id,
-            metadata = {
-                "title":       title,
-                "source_type": source_type,
-                "source_path": source_path,
-                "tags":        ", ".join(tags or [])
-            }
-        )
-
-        if not chunks:
-            raise ValueError(f"Document produced no chunks: {title}")
-
-        # ── Embed ──────────────────────────────────────────────
-        print(f"[DocumentStore] Embedding {len(chunks)} chunks...")
-        chunk_embedding_pairs = self.embedder.embed_chunks(chunks)
-        chunk_list  = [pair[0] for pair in chunk_embedding_pairs]
-        embed_list  = [pair[1] for pair in chunk_embedding_pairs]
-
-        # ── Store ──────────────────────────────────────────────
-        self.vector_store.add_chunks(chunk_list, embed_list)
-
-        # ── Save metadata ──────────────────────────────────────
-        metadata.chunk_count = len(chunks)
-        self.metadata.add(metadata)
-
-        print(f"[DocumentStore] ✓ Ingested: {title} — {len(chunks)} chunks")
-        return metadata
-
-    # ── Delete ─────────────────────────────────────────────────────────────
-
-    def delete(self, doc_id: str) -> bool:
-        """
-        Remove a document and all its chunks from the knowledge base.
-        Returns True if the document existed and was deleted.
-        """
-        metadata = self.metadata.get(doc_id)
-        if not metadata:
-            print(f"[DocumentStore] Document not found: {doc_id}")
-            return False
-
-        # Delete chunks from vector store first
-        self.vector_store.delete_document(doc_id)
-
-        # Then remove metadata entry
-        self.metadata.delete(doc_id)
-
-        print(f"[DocumentStore] ✓ Deleted: {metadata.title}")
-        return True
-
-    # ── Search ─────────────────────────────────────────────────────────────
-
-    def search(
-        self,
-        query:   str,
-        top_k:   int       = 20,
-        doc_ids: list[str] = None
-    ) -> list[dict]:
-        """
-        Hybrid search over all stored chunks.
-
-        Embeds the query and runs both semantic and keyword search,
-        merging and deduplicating results before returning.
-        """
-        query_embedding = self.embedder.embed_query(query)
-
-        return self.vector_store.hybrid_search(
-            query           = query,
-            query_embedding = query_embedding,
-            top_k           = top_k,
-            doc_ids         = doc_ids
-        )
-
-    # ── Retrieval ──────────────────────────────────────────────────────────
-
-    def get_document(self, doc_id: str) -> DocumentMetadata | None:
-        """Retrieve metadata for a single document."""
-        return self.metadata.get(doc_id)
-
-    def list_documents(self) -> list[DocumentMetadata]:
-        """List all documents sorted by most recently updated."""
-        return self.metadata.list_all()
-
-    def list_by_type(self, source_type: str) -> list[DocumentMetadata]:
-        """List all documents of a given source type."""
-        return self.metadata.list_by_type(source_type)
-
-    def list_by_tag(self, tag: str) -> list[DocumentMetadata]:
-        """List all documents with a specific tag."""
-        return self.metadata.list_by_tag(tag)
-
-    # ── Stats ──────────────────────────────────────────────────────────────
-
-    def stats(self) -> dict:
-        """
-        Summary statistics about the knowledge base.
-        Shown on the dashboard and returned by the /stats endpoint.
-        """
-        docs        = self.metadata.list_all()
-        total_chunks = self.vector_store.count()
-
-        by_type = {}
-        for doc in docs:
-            by_type[doc.source_type] = by_type.get(doc.source_type, 0) + 1
+        print(f"[PDFIngester] Extracted {len(text)} chars from {meta['page_count']} pages")
 
         return {
-            "total_documents": len(docs),
-            "total_chunks":    total_chunks,
-            "by_type":         by_type,
-            "total_chars":     sum(d.char_count for d in docs),
-            "all_tags":        list({tag for d in docs for tag in d.tags})
+            "text":        text,
+            "title":       meta["title"],
+            "source_path": str(path),
+            "source_type": "pdf",
+            "extra":       meta
+        }
+
+    def ingest_bytes(self, pdf_bytes: bytes, filename: str) -> dict:
+        """
+        Extract text from PDF bytes directly — used when a PDF is
+        uploaded via the Flask API rather than read from disk.
+        Saves the file to DOCS_DIR first, then processes it.
+        """
+        save_path = DOCS_DIR / filename
+        with open(save_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        return self.ingest(save_path)
+
+    # ── Private ────────────────────────────────────────────────────────────
+
+    def _extract_text(self, reader: pypdf.PdfReader) -> str:
+        """
+        Extract text from all pages and join into a single string.
+
+        We add a form feed character (\f) between pages so the chunker
+        can use page breaks as natural split points if needed.
+        Page numbers and headers/footers are cleaned up after extraction.
+        """
+        pages = []
+
+        for page_num, page in enumerate(reader.pages, start=1):
+            try:
+                page_text = page.extract_text() or ""
+                cleaned   = self._clean_page(page_text, page_num)
+                if cleaned.strip():
+                    pages.append(cleaned)
+            except Exception as e:
+                print(f"[PDFIngester] Failed to extract page {page_num}: {e}")
+                continue
+
+        return "\n\n".join(pages)
+
+    def _clean_page(self, text: str, page_num: int) -> str:
+        """
+        Clean common PDF extraction artifacts from a single page.
+
+        Common issues:
+        - Words split across lines with a hyphen: "impor-\ntant" → "important"
+        - Excessive whitespace between characters
+        - Page numbers appearing mid-text
+        - Headers/footers repeating on every page
+        """
+        if not text:
+            return ""
+
+        lines    = text.splitlines()
+        cleaned  = []
+
+        for line in lines:
+            line = line.strip()
+
+            # Skip lines that are just a page number
+            if line.isdigit():
+                continue
+
+            # Skip very short lines that are likely headers/footers
+            # (less than 3 words and not ending with punctuation)
+            words = line.split()
+            if len(words) <= 2 and not line.endswith((".", "!", "?", ":")):
+                continue
+
+            # Rejoin hyphenated line breaks: "impor-" + "tant" → "important"
+            if cleaned and cleaned[-1].endswith("-"):
+                cleaned[-1] = cleaned[-1][:-1] + line
+            else:
+                cleaned.append(line)
+
+        return "\n".join(cleaned)
+
+    def _extract_metadata(self, reader: pypdf.PdfReader, path: Path) -> dict:
+        """
+        Extract metadata from PDF document properties.
+
+        PDF metadata is stored in a /Info dictionary and is often
+        missing or filled with placeholder values — so we fall back
+        gracefully to the filename when nothing useful is found.
+        """
+        info       = reader.metadata or {}
+        page_count = len(reader.pages)
+
+        # PDF metadata keys use a slash prefix: /Title, /Author, etc.
+        raw_title  = info.get("/Title", "").strip()
+        raw_author = info.get("/Author", "").strip()
+        raw_date   = info.get("/CreationDate", "").strip()
+
+        # Fall back to filename (without extension) if no title in metadata
+        title = raw_title if raw_title else path.stem.replace("_", " ").replace("-", " ").title()
+
+        return {
+            "title":      title,
+            "author":     raw_author or "Unknown",
+            "page_count": page_count,
+            "created":    raw_date,
+            "filename":   path.name,
+            "file_size":  path.stat().st_size
         }
