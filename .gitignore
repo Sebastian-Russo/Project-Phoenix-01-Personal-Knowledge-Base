@@ -7,3 +7,4 @@ __pycache__/
 *.sqlite
 chroma_db/
 .DS_Store
+google_token.json
